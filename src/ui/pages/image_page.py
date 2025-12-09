@@ -7,7 +7,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTextEdit, QComboBox, QGroupBox, QFrame, QScrollArea,
-    QGridLayout, QFileDialog, QSizePolicy
+    QGridLayout, QFileDialog, QSizePolicy, QWidget
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QPixmap, QImage
