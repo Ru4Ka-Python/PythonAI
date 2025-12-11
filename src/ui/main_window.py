@@ -281,11 +281,16 @@ class MainWindow(QMainWindow):
             self.toast.show_message("Item deleted")
             
     def open_settings(self):
-        # Index of SettingsPage is 5
+        # Hide history sidebar when opening settings
+        self.history_sidebar.hide()
+        
+        # Use fade transition for consistency with other page switches
+        self.fade_transition(lambda: self.switch_to_settings())
+    
+    def switch_to_settings(self):
+        """Switch to settings page."""
         self.stack.setCurrentIndex(5)
-        # Maybe hide history sidebar or show settings history?
-        # Requirement: "Settings section: Add the ability to change the system-installed font"
-        # Requirement: "keep the 'Settings' section in the same place where it originally was" (Sidebar button)
+        # Could add settings-specific history here if needed
         
     def on_settings_changed(self):
         config = self.config_manager.config
