@@ -118,8 +118,8 @@ class MessageBubble(QFrame):
         self.content_container.setSpacing(10)
         self.layout.addLayout(self.content_container)
         
-        self.setMaximumWidth(800)
-        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Minimum)
+        self.setMinimumWidth(300)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 
     def render_content(self, text: str):
         """Parse and render content (text/markdown/code)."""
@@ -234,6 +234,7 @@ class ChatWidget(QWidget):
         
         # Keep reference to animation to prevent GC
         bubble.anim = anim
+        bubble.message_container = container
         
         self.messages_layout.insertWidget(self.messages_layout.count() - 1, container)
         self.messages.append({"role": "user" if is_user else "assistant", "content": message})
@@ -248,11 +249,39 @@ class ChatWidget(QWidget):
                 bubble = last_container.findChild(MessageBubble)
                 if bubble:
                     bubble.update_text(content)
+                    self.animate_word_fade(bubble, content)
         
         if self.messages:
             self.messages[-1]["content"] = content
         
         self.scroll_to_bottom()
+    
+    def animate_word_fade(self, bubble, content: str):
+        """Add fade animation to the last word in the message."""
+        if not bubble.content_container or bubble.content_container.count() == 0:
+            return
+        
+        last_item = bubble.content_container.itemAt(bubble.content_container.count() - 1)
+        if not last_item or not last_item.widget():
+            return
+        
+        last_widget = last_item.widget()
+        
+        opacity_effect = last_widget.graphicsEffect()
+        if not opacity_effect or not isinstance(opacity_effect, QGraphicsOpacityEffect):
+            opacity_effect = QGraphicsOpacityEffect()
+            last_widget.setGraphicsEffect(opacity_effect)
+        
+        if opacity_effect.opacity() < 1.0:
+            anim = QPropertyAnimation(opacity_effect, b"opacity")
+            anim.setDuration(300)
+            anim.setStartValue(0.3)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.InOutQuad)
+            anim.start()
+            if not hasattr(last_widget, 'fade_anims'):
+                last_widget.fade_anims = []
+            last_widget.fade_anims.append(anim)
     
     def scroll_to_bottom(self):
         """Scroll to the bottom of the chat."""

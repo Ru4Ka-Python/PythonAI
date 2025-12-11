@@ -74,6 +74,7 @@ class CompareAIPage(BasePage):
         super().__init__("Compare AI", "Compare performance and responses of different models", parent)
         self.llm_client = None
         self.workers = [None, None]
+        self.current_history_id = None
         self.setup_ui()
         
     def set_llm_client(self, client):
@@ -167,9 +168,6 @@ class CompareAIPage(BasePage):
         message = self.input_field.toPlainText().strip()
         if not message:
             return
-            
-        self.chat1.clear_messages()
-        self.chat2.clear_messages()
         
         self.chat1.add_message(message, is_user=True)
         self.chat2.add_message(message, is_user=True)
@@ -182,35 +180,105 @@ class CompareAIPage(BasePage):
         
     def start_worker(self, index, message, provider, model):
         if not self.llm_client:
+            chat_widget = self.chat1 if index == 0 else self.chat2
+            chat_widget.add_message("Connection error: LLM Client not initialized", is_user=False, sender_name=f"{model} ({provider})")
             return
-            
-        worker = SingleModelWorker(
-            self.llm_client, message, model, provider, 
-            self.config.temperature, self.config.max_tokens
-        )
         
+        try:
+            worker = SingleModelWorker(
+                self.llm_client, message, model, provider, 
+                self.config.temperature, self.config.max_tokens
+            )
+            
+            chat_widget = self.chat1 if index == 0 else self.chat2
+            stats_label = self.stats1 if index == 0 else self.stats2
+            
+            # Add initial AI message
+            chat_widget.add_message("", is_user=False, sender_name=f"{model} ({provider})")
+            
+            worker.chunk_received.connect(lambda c: chat_widget.update_last_message(
+                chat_widget.get_messages()[-1]["content"] + c
+            ))
+            
+            worker.finished.connect(lambda d, t: self.update_stats(index, d, t))
+            worker.error.connect(lambda e: self.on_worker_error(index, e))
+            
+            # Clean up existing worker if any
+            if self.workers[index] and self.workers[index].isRunning():
+                self.workers[index].terminate()
+                
+            self.workers[index] = worker
+            worker.start()
+        except Exception as e:
+            chat_widget = self.chat1 if index == 0 else self.chat2
+            chat_widget.add_message(f"Error: {str(e)}", is_user=False, sender_name=f"{model} ({provider})")
+    
+    def on_worker_error(self, index, error_message):
+        """Handle worker error."""
         chat_widget = self.chat1 if index == 0 else self.chat2
-        stats_label = self.stats1 if index == 0 else self.stats2
-        
-        # Add initial AI message
-        chat_widget.add_message("", is_user=False, sender_name=f"{model} ({provider})")
-        
-        worker.chunk_received.connect(lambda c: chat_widget.update_last_message(
-            chat_widget.get_messages()[-1]["content"] + c
-        ))
-        
-        worker.finished.connect(lambda d, t: self.update_stats(index, d, t))
-        worker.error.connect(lambda e: chat_widget.update_last_message(f"Error: {e}"))
-        
-        # Clean up existing worker if any
-        if self.workers[index] and self.workers[index].isRunning():
-            self.workers[index].terminate()
-            
-        self.workers[index] = worker
-        worker.start()
+        if chat_widget.get_messages() and not chat_widget.get_messages()[-1]["content"]:
+            chat_widget.update_last_message(f"Connection error: {error_message}")
+        else:
+            chat_widget.add_message(f"Connection error: {error_message}", is_user=False)
         
     def update_stats(self, index, duration, tokens):
         label = self.stats1 if index == 0 else self.stats2
         speed = tokens / duration if duration > 0 else 0
         label.setText(f"Time: {duration:.2f}s | Speed: {speed:.2f} tok/s")
+        self.save_history()
+    
+    def load_history_item(self, item):
+        """Load comparison history."""
+        self.current_history_id = item['id']
+        data = item['data']
+        
+        messages1 = data.get('messages1', [])
+        messages2 = data.get('messages2', [])
+        
+        self.chat1.clear_messages()
+        self.chat2.clear_messages()
+        
+        for msg in messages1:
+            is_user = msg["role"] == "user"
+            self.chat1.add_message(msg["content"], is_user=is_user, sender_name="You" if is_user else "AI")
+        
+        for msg in messages2:
+            is_user = msg["role"] == "user"
+            self.chat2.add_message(msg["content"], is_user=is_user, sender_name="You" if is_user else "AI")
+    
+    def load_history_data(self, data):
+        """Load comparison history (compatibility method)."""
+        self.load_history_item({"id": None, "data": data})
+    
+    def save_history(self):
+        """Save comparison to history."""
+        if not self._history_manager:
+            return
+        
+        messages1 = self.chat1.get_messages()
+        messages2 = self.chat2.get_messages()
+        
+        data = {
+            "messages1": messages1,
+            "messages2": messages2,
+            "model1": {
+                "provider": self.model1_provider.currentText(),
+                "model": self.model1_model.currentText()
+            },
+            "model2": {
+                "provider": self.model2_provider.currentText(),
+                "model": self.model2_model.currentText()
+            }
+        }
+        
+        if self.current_history_id:
+            self._history_manager.update_item_data("compare_ai", self.current_history_id, data)
+        else:
+            title = "Comparison"
+            if messages1:
+                first_msg = messages1[0]['content']
+                title = (first_msg[:30] + '...') if len(first_msg) > 30 else first_msg
+            
+            item = self._history_manager.add_item("compare_ai", title, data)
+            self.current_history_id = item['id']
 

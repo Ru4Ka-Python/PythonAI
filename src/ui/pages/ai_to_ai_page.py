@@ -108,6 +108,7 @@ class AIToAIPage(BasePage):
         )
         self.conversation_worker = None
         self.messages = []
+        self.current_history_id = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -171,14 +172,20 @@ class AIToAIPage(BasePage):
         self.status_label.setStyleSheet("color: #8a8a8a;")
         layout.addWidget(self.status_label)
     
-    def load_history_data(self, data):
-        """Load history."""
+    def load_history_item(self, item):
+        """Load history from item."""
+        self.current_history_id = item['id']
+        data = item['data']
         self.messages = data.get("messages", [])
         self.topic_input.setText(data.get("topic", ""))
         self.chat_widget.clear_messages()
         
         for msg in self.messages:
             self.chat_widget.add_message(msg['content'], is_user=msg.get('is_ai2', False), sender_name=msg.get('sender', 'AI'))
+    
+    def load_history_data(self, data):
+        """Load history (compatibility method)."""
+        self.load_history_item({"id": None, "data": data})
 
     def start_conversation(self):
         """Start the AI-to-AI conversation."""

@@ -14,6 +14,7 @@ class HistorySidebar(QFrame):
     item_clicked = pyqtSignal(str)  # Returns item ID
     item_renamed = pyqtSignal(str, str)  # ID, new name
     item_deleted = pyqtSignal(str)  # ID
+    item_export = pyqtSignal(str)  # ID
     settings_clicked = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -89,6 +90,7 @@ class HistorySidebar(QFrame):
         """Show context menu for history item."""
         menu = QMenu(self)
         rename_action = menu.addAction("Rename")
+        export_action = menu.addAction("Export to TXT")
         delete_action = menu.addAction("Delete")
         
         action = menu.exec_(button.mapToGlobal(pos))
@@ -101,6 +103,9 @@ class HistorySidebar(QFrame):
             if ok and new_name:
                 self.item_renamed.emit(item['id'], new_name)
                 button.setText(new_name)
+        
+        elif action == export_action:
+            self.item_export.emit(item['id'])
                 
         elif action == delete_action:
             self.item_deleted.emit(item['id'])
