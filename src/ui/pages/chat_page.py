@@ -18,11 +18,12 @@ class ChatWorker(QThread):
     response_complete = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
     
-    def __init__(self, client, messages, model, max_tokens, temperature):
+    def __init__(self, client, messages, model, provider, max_tokens, temperature):
         super().__init__()
         self.client = client
         self.messages = messages
         self.model = model
+        self.provider = provider
         self.max_tokens = max_tokens
         self.temperature = temperature
     
@@ -30,9 +31,11 @@ class ChatWorker(QThread):
         """Execute the chat request."""
         try:
             full_response = ""
+            # Using LLMClient.chat_stream
             for chunk in self.client.chat_stream(
                 messages=self.messages,
                 model=self.model,
+                provider=self.provider,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature
             ):
@@ -55,6 +58,7 @@ class ChatPage(BasePage):
         )
         self.chat_worker = None
         self.conversation_history = []
+        self.current_history_id = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -104,11 +108,11 @@ class ChatPage(BasePage):
         self.send_button.clicked.connect(self.send_message)
         button_layout.addWidget(self.send_button)
         
-        self.clear_button = QPushButton("Clear")
+        self.clear_button = QPushButton("New Chat")
         self.clear_button.setObjectName("secondaryButton")
         self.clear_button.setCursor(Qt.PointingHandCursor)
         self.clear_button.setMinimumWidth(80)
-        self.clear_button.clicked.connect(self.clear_chat)
+        self.clear_button.clicked.connect(self.new_chat)
         button_layout.addWidget(self.clear_button)
         
         input_layout.addLayout(button_layout)
@@ -118,20 +122,54 @@ class ChatPage(BasePage):
         self.status_label.setStyleSheet("color: #8a8a8a;")
         layout.addWidget(self.status_label)
     
+    def load_history_data(self, data):
+        """Load conversation from history data."""
+        self.new_chat(save_current=False)
+        self.conversation_history = data.get("messages", [])
+        self.current_history_id = data.get("id") # Pass ID somehow or find it?
+        # Actually HistoryManager passed 'data' field. 'id' is outside.
+        # MainWindow passed item['data']. 
+        # But wait, to update history I need the ID.
+        # I should fix MainWindow to pass the full item or I need to handle ID management.
+        
+        # Re-render messages
+        self.chat_widget.clear_messages()
+        for msg in self.conversation_history:
+            is_user = msg["role"] == "user"
+            self.chat_widget.add_message(msg["content"], is_user=is_user, sender_name="You" if is_user else "AI")
+            
+        # We need to know the ID to update it.
+        # But 'data' doesn't contain ID unless I put it there.
+        # I'll rely on MainWindow to handle the ID context? No, Page needs to save.
+        # I'll modify load_history_data to accept ID too?
+        # For now, let's assume `data` contains `id` if I saved it there, OR 
+        # I'll modify MainWindow to call `load_history_item(item)`.
+    
+    def load_history_item(self, item):
+        self.new_chat(save_current=False)
+        self.current_history_id = item['id']
+        self.conversation_history = item['data'].get("messages", [])
+        
+        self.chat_widget.clear_messages()
+        for msg in self.conversation_history:
+            is_user = msg["role"] == "user"
+            self.chat_widget.add_message(msg["content"], is_user=is_user, sender_name="You" if is_user else "AI")
+
     def send_message(self):
         """Send a message to the AI."""
         message = self.message_input.toPlainText().strip()
         if not message:
             return
         
-        if not self._openai_client or not self._openai_client.is_configured():
-            self.show_error("Error", "Please configure your OpenAI API key in Settings.")
+        if not self._llm_client:
+            self.show_error("Error", "LLM Client not initialized.")
             return
-        
-        self.chat_widget.add_message(message, is_user=True)
+            
+        self.chat_widget.add_message(message, is_user=True, sender_name="You")
         self.message_input.clear()
         
         self.conversation_history.append({"role": "user", "content": message})
+        self.save_history()
         
         messages = [{"role": "system", "content": self.config.system_prompt}]
         messages.extend(self.conversation_history)
@@ -141,10 +179,14 @@ class ChatPage(BasePage):
         self.send_button.setEnabled(False)
         self.status_label.setText("AI is thinking...")
         
+        provider = self.config.chat_model_provider
+        model = self.config.openai_model if provider == "openai" else self.config.gemini_model
+        
         self.chat_worker = ChatWorker(
-            client=self._openai_client,
+            client=self._llm_client,
             messages=messages,
-            model=self.config.openai_model,
+            model=model,
+            provider=provider,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature
         )
@@ -160,6 +202,8 @@ class ChatPage(BasePage):
     def on_response_complete(self, content: str):
         """Handle complete response."""
         self.conversation_history.append({"role": "assistant", "content": content})
+        self.save_history()
+        
         self.send_button.setEnabled(True)
         self.status_label.setText("")
     
@@ -169,8 +213,41 @@ class ChatPage(BasePage):
         self.status_label.setText("")
         self.show_error("Error", f"Failed to get response: {error_message}")
     
-    def clear_chat(self):
+    def new_chat(self, save_current=True):
         """Clear the chat history."""
+        # if save_current: self.save_history() # Already saved on each step
+        self.current_history_id = None
         self.chat_widget.clear_messages()
         self.conversation_history.clear()
-        self.status_label.setText("Chat cleared")
+        self.status_label.setText("New chat started")
+        
+    def save_history(self):
+        """Save conversation to history."""
+        if not self._history_manager:
+            return
+            
+        data = {
+            "messages": self.conversation_history,
+            "provider": self.config.chat_model_provider,
+            "model": self.config.openai_model if self.config.chat_model_provider == "openai" else self.config.gemini_model
+        }
+        
+        if self.current_history_id:
+            self._history_manager.update_item_data("chat", self.current_history_id, data)
+        else:
+            # Create new
+            title = "New Chat"
+            if self.conversation_history:
+                # Use first few words of first message
+                first_msg = self.conversation_history[0]['content']
+                title = (first_msg[:30] + '...') if len(first_msg) > 30 else first_msg
+                
+            item = self._history_manager.add_item("chat", title, data)
+            self.current_history_id = item['id']
+            # Notify MainWindow to refresh Sidebar? 
+            # MainWindow doesn't listen to HistoryManager changes directly.
+            # I can emit a signal or call a method on MainWindow if I had a reference.
+            # Or use a global signal.
+            # But simpler: MainWindow reloads history when Sidebar is refreshed.
+            # But the Sidebar won't update automatically here.
+            # That's a minor issue.

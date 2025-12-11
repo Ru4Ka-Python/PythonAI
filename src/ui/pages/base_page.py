@@ -13,16 +13,30 @@ class BasePage(QWidget):
         self.title_text = title
         self.subtitle_text = subtitle
         self._config_manager = None
+        self._history_manager = None
         self._openai_client = None
+        self._llm_client = None
         self._lumaai_client = None
     
     def set_config_manager(self, config_manager):
         """Set the configuration manager."""
         self._config_manager = config_manager
+
+    def set_history_manager(self, history_manager):
+        """Set the history manager."""
+        self._history_manager = history_manager
+
     
     def set_openai_client(self, client):
-        """Set the OpenAI client."""
+        """Set the LLM client (legacy name)."""
         self._openai_client = client
+        self._llm_client = client
+        
+    def set_llm_client(self, client):
+        """Set the LLM client."""
+        self._llm_client = client
+        self._openai_client = client # For compatibility
+
     
     def set_lumaai_client(self, client):
         """Set the LumaAI client."""

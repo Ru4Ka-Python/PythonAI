@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QGridLayout, QFileDialog, QSizePolicy, QWidget
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt5.QtGui import QFont, QPixmap, QImage
+from PyQt5.QtGui import QFont, QPixmap, QImage, QColor, QPalette
 
 from .base_page import BasePage
 from ...config import AVAILABLE_IMAGE_SIZES
@@ -58,14 +58,18 @@ class ImageCard(QFrame):
     
     def setup_ui(self):
         """Initialize the UI."""
+        self.setObjectName("imageCard")
         self.setStyleSheet("""
-            QFrame {
+            QFrame#imageCard {
                 background-color: #16213e;
                 border-radius: 12px;
                 padding: 10px;
+                border: 2px solid transparent;
+            }
+            QFrame#imageCard:hover {
+                border: 2px solid #e94560;
             }
         """)
-        self.setFixedSize(300, 350)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -73,7 +77,6 @@ class ImageCard(QFrame):
         
         self.image_label = QLabel("Loading...")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setFixedSize(280, 280)
         self.image_label.setStyleSheet("""
             QLabel {
                 background-color: #0f3460;
@@ -96,12 +99,17 @@ class ImageCard(QFrame):
                 image = QImage()
                 image.loadFromData(response.content)
                 self.pixmap = QPixmap.fromImage(image)
-                scaled = self.pixmap.scaled(
-                    280, 280,
-                    Qt.KeepAspectRatio,
+                
+                # Resize based on aspect ratio
+                width = 280
+                scaled = self.pixmap.scaledToWidth(
+                    width,
                     Qt.SmoothTransformation
                 )
                 self.image_label.setPixmap(scaled)
+                # Adjust size of widget
+                # self.setFixedSize(width + 20, scaled.height() + 60)
+                # Setting fixed size might break grid. Better to let layout handle it.
         except Exception as e:
             self.image_label.setText(f"Failed to load:\n{str(e)[:50]}")
     
@@ -204,6 +212,28 @@ class ImageGeneratorPage(BasePage):
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #8a8a8a;")
         layout.addWidget(self.status_label)
+        
+    def load_history_data(self, data):
+        """Load history data (images)."""
+        # Data format: {"prompt": str, "images": [{"url": str}]}
+        # Just display them in the gallery
+        # Clear gallery?
+        
+        # Or maybe the history item IS the image set.
+        # MainWindow passes item['data'].
+        
+        prompt = data.get("prompt", "")
+        self.prompt_input.setPlainText(prompt)
+        
+        images = data.get("images", [])
+        for img_data in images:
+            url = img_data.get("url")
+            if url:
+                card = ImageCard(url, prompt)
+                self.generated_images.append(card)
+                row = (len(self.generated_images) - 1) // 3
+                col = (len(self.generated_images) - 1) % 3
+                self.gallery_layout.addWidget(card, row, col)
     
     def generate_image(self):
         """Generate a new image."""
@@ -212,15 +242,15 @@ class ImageGeneratorPage(BasePage):
             self.show_warning("Warning", "Please enter an image description.")
             return
         
-        if not self._openai_client or not self._openai_client.is_configured():
-            self.show_error("Error", "Please configure your OpenAI API key in Settings.")
+        if not self._llm_client:
+            self.show_error("Error", "LLM Client not initialized.")
             return
         
         self.generate_button.setEnabled(False)
         self.status_label.setText("Generating image... This may take a moment.")
         
         self.image_worker = ImageGeneratorWorker(
-            client=self._openai_client,
+            client=self._llm_client,
             prompt=prompt,
             model=self.config.image_model,
             size=self.size_combo.currentText(),
@@ -242,7 +272,21 @@ class ImageGeneratorPage(BasePage):
         row = (len(self.generated_images) - 1) // 3
         col = (len(self.generated_images) - 1) % 3
         self.gallery_layout.addWidget(card, row, col)
+        
+        self.save_history(prompt, url)
     
+    def save_history(self, prompt, url):
+        """Save to history."""
+        if not self._history_manager: return
+        
+        data = {
+            "prompt": prompt,
+            "images": [{"url": url}]
+        }
+        
+        title = prompt[:30] + "..." if len(prompt) > 30 else prompt
+        self._history_manager.add_item("image", title, data)
+
     def on_error(self, error_message: str):
         """Handle errors."""
         self.generate_button.setEnabled(True)
