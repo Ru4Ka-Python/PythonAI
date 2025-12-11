@@ -123,27 +123,8 @@ class ChatPage(BasePage):
         layout.addWidget(self.status_label)
     
     def load_history_data(self, data):
-        """Load conversation from history data."""
-        self.new_chat(save_current=False)
-        self.conversation_history = data.get("messages", [])
-        self.current_history_id = data.get("id") # Pass ID somehow or find it?
-        # Actually HistoryManager passed 'data' field. 'id' is outside.
-        # MainWindow passed item['data']. 
-        # But wait, to update history I need the ID.
-        # I should fix MainWindow to pass the full item or I need to handle ID management.
-        
-        # Re-render messages
-        self.chat_widget.clear_messages()
-        for msg in self.conversation_history:
-            is_user = msg["role"] == "user"
-            self.chat_widget.add_message(msg["content"], is_user=is_user, sender_name="You" if is_user else "AI")
-            
-        # We need to know the ID to update it.
-        # But 'data' doesn't contain ID unless I put it there.
-        # I'll rely on MainWindow to handle the ID context? No, Page needs to save.
-        # I'll modify load_history_data to accept ID too?
-        # For now, let's assume `data` contains `id` if I saved it there, OR 
-        # I'll modify MainWindow to call `load_history_item(item)`.
+        """Load conversation from history data (called by MainWindow)."""
+        self.load_history_item({"id": None, "data": data})
     
     def load_history_item(self, item):
         self.new_chat(save_current=False)

@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         self.history_sidebar.item_clicked.connect(self.on_history_item_clicked)
         self.history_sidebar.item_renamed.connect(self.on_history_renamed)
         self.history_sidebar.item_deleted.connect(self.on_history_deleted)
+        self.history_sidebar.item_export.connect(self.on_history_export)
         self.history_sidebar.settings_clicked.connect(self.open_settings)
         content_layout.addWidget(self.history_sidebar)
         
@@ -263,7 +264,10 @@ class MainWindow(QMainWindow):
         if item:
             # Load data into current page
             page = self.stack.currentWidget()
-            if hasattr(page, 'load_history_data'):
+            if hasattr(page, 'load_history_item'):
+                page.load_history_item(item)
+                self.toast.show_message(f"Loaded: {item['name']}")
+            elif hasattr(page, 'load_history_data'):
                 page.load_history_data(item['data'])
                 self.toast.show_message(f"Loaded: {item['name']}")
                 
@@ -279,6 +283,29 @@ class MainWindow(QMainWindow):
             items = self.history_manager.get_items(mode)
             self.history_sidebar.update_history(mode.replace("_", " ").title(), items)
             self.toast.show_message("Item deleted")
+    
+    def on_history_export(self, item_id: str):
+        """Export history item to text file."""
+        from PyQt5.QtWidgets import QFileDialog
+        mode = self.history_sidebar.current_mode
+        item = self.history_manager.get_item(mode, item_id)
+        
+        if not item:
+            self.toast.show_message("Item not found")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export History",
+            f"{item['name']}.txt",
+            "Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            if self.history_manager.export_to_txt(mode, item_id, file_path):
+                self.toast.show_message(f"Exported to {file_path}")
+            else:
+                self.toast.show_message("Export failed")
             
     def open_settings(self):
         # Hide history sidebar when opening settings

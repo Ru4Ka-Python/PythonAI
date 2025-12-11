@@ -95,3 +95,30 @@ class HistoryManager:
                 self.save()
                 return True
         return False
+    
+    def export_to_txt(self, mode: str, item_id: str, file_path: str) -> bool:
+        """Export history item to a text file."""
+        item = self.get_item(mode, item_id)
+        if not item:
+            return False
+        
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(f"# {item['name']}\n")
+                f.write(f"Mode: {mode}\n")
+                f.write(f"Date: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(item['timestamp']))}\n")
+                f.write("=" * 80 + "\n\n")
+                
+                data = item['data']
+                messages = data.get('messages', [])
+                
+                for msg in messages:
+                    role = msg.get('role', 'unknown').upper()
+                    content = msg.get('content', '')
+                    f.write(f"[{role}]\n{content}\n\n")
+                    f.write("-" * 80 + "\n\n")
+            
+            return True
+        except Exception as e:
+            print(f"Error exporting to text: {e}")
+            return False

@@ -73,6 +73,7 @@ Thumbs.db
 
 # Project specific
 config.json
+history.json
 *.log
 generated_images/
 generated_videos/
