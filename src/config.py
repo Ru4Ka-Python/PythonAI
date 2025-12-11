@@ -27,11 +27,15 @@ class AppConfig:
     """Application configuration settings."""
     
     openai_api_key: str = ""
+    gemini_api_key: str = ""
     lumaai_api_key: str = ""
     openai_model: str = DEFAULT_OPENAI_MODEL
+    gemini_model: str = "gemini-2.0-flash"
+    chat_model_provider: str = "openai"  # "openai" or "gemini"
     image_model: str = DEFAULT_IMAGE_MODEL
     image_size: str = DEFAULT_IMAGE_SIZE
     theme: str = "dark"
+    font_family: str = "Segoe UI"
     auto_check_updates: bool = True
     max_tokens: int = 2048
     temperature: float = 0.7

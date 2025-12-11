@@ -1,6 +1,7 @@
 """Custom widgets for RoleAI."""
 
 from .chat_widget import ChatWidget, MessageBubble
-from .sidebar import Sidebar
+from .topbar import TopBar
+from .history_sidebar import HistorySidebar
 
-__all__ = ["ChatWidget", "MessageBubble", "Sidebar"]
+__all__ = ["ChatWidget", "MessageBubble", "TopBar", "HistorySidebar"]

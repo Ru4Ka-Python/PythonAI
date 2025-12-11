@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QLineEdit, QComboBox, QGroupBox, QSpinBox,
     QDoubleSpinBox, QTextEdit, QCheckBox, QScrollArea,
-    QWidget, QFormLayout
+    QWidget, QFormLayout, QFontComboBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -45,6 +45,7 @@ class SettingsPage(BasePage):
         layout = QVBoxLayout(scroll_widget)
         layout.setSpacing(20)
         
+        # API Keys
         api_group = QGroupBox("API Keys")
         api_layout = QFormLayout(api_group)
         api_layout.setSpacing(15)
@@ -54,23 +55,34 @@ class SettingsPage(BasePage):
         self.openai_key_input.setEchoMode(QLineEdit.Password)
         api_layout.addRow("OpenAI API Key:", self.openai_key_input)
         
+        self.gemini_key_input = QLineEdit()
+        self.gemini_key_input.setPlaceholderText("Gemini API key")
+        self.gemini_key_input.setEchoMode(QLineEdit.Password)
+        api_layout.addRow("Gemini API Key:", self.gemini_key_input)
+        
         self.lumaai_key_input = QLineEdit()
-        self.lumaai_key_input.setPlaceholderText("Your LumaAI API key")
+        self.lumaai_key_input.setPlaceholderText("LumaAI API key")
         self.lumaai_key_input.setEchoMode(QLineEdit.Password)
         api_layout.addRow("LumaAI API Key:", self.lumaai_key_input)
         
         layout.addWidget(api_group)
         
+        # Model Settings
         model_group = QGroupBox("AI Model Settings")
         model_layout = QFormLayout(model_group)
         model_layout.setSpacing(15)
         
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItems(["openai", "gemini"])
+        self.provider_combo.currentTextChanged.connect(self.update_model_list)
+        model_layout.addRow("Model Type:", self.provider_combo)
+        
         self.model_combo = QComboBox()
-        self.model_combo.addItems(AVAILABLE_MODELS)
+        # Initial population handled by update_model_list
         model_layout.addRow("Chat Model:", self.model_combo)
         
         self.max_tokens_spin = QSpinBox()
-        self.max_tokens_spin.setRange(100, 8000)
+        self.max_tokens_spin.setRange(100, 32000)
         self.max_tokens_spin.setValue(2048)
         self.max_tokens_spin.setSingleStep(100)
         model_layout.addRow("Max Tokens:", self.max_tokens_spin)
@@ -84,6 +96,7 @@ class SettingsPage(BasePage):
         
         layout.addWidget(model_group)
         
+        # System Prompts
         prompt_group = QGroupBox("System Prompts")
         prompt_layout = QVBoxLayout(prompt_group)
         prompt_layout.setSpacing(15)
@@ -96,16 +109,24 @@ class SettingsPage(BasePage):
         self.system_prompt_input.setMaximumHeight(80)
         prompt_layout.addWidget(self.system_prompt_input)
         
-        ai1_label = QLabel("AI-1 System Prompt:")
+        ai1_label = QLabel("AI-1 Name & System Prompt:")
         prompt_layout.addWidget(ai1_label)
+        
+        self.ai1_name_input = QLineEdit()
+        self.ai1_name_input.setPlaceholderText("Name for AI-1")
+        prompt_layout.addWidget(self.ai1_name_input)
         
         self.ai1_prompt_input = QTextEdit()
         self.ai1_prompt_input.setPlaceholderText("Enter the system prompt for AI-1...")
         self.ai1_prompt_input.setMaximumHeight(80)
         prompt_layout.addWidget(self.ai1_prompt_input)
         
-        ai2_label = QLabel("AI-2 System Prompt:")
+        ai2_label = QLabel("AI-2 Name & System Prompt:")
         prompt_layout.addWidget(ai2_label)
+        
+        self.ai2_name_input = QLineEdit()
+        self.ai2_name_input.setPlaceholderText("Name for AI-2")
+        prompt_layout.addWidget(self.ai2_name_input)
         
         self.ai2_prompt_input = QTextEdit()
         self.ai2_prompt_input.setPlaceholderText("Enter the system prompt for AI-2...")
@@ -114,6 +135,7 @@ class SettingsPage(BasePage):
         
         layout.addWidget(prompt_group)
         
+        # Appearance
         appearance_group = QGroupBox("Appearance")
         appearance_layout = QFormLayout(appearance_group)
         appearance_layout.setSpacing(15)
@@ -123,8 +145,13 @@ class SettingsPage(BasePage):
         self.theme_combo.currentTextChanged.connect(self.on_theme_changed)
         appearance_layout.addRow("Theme:", self.theme_combo)
         
+        self.font_combo = QFontComboBox()
+        self.font_combo.setFontFilters(QFontComboBox.ScalableFonts)
+        appearance_layout.addRow("System Font:", self.font_combo)
+        
         layout.addWidget(appearance_group)
         
+        # Misc
         misc_group = QGroupBox("Miscellaneous")
         misc_layout = QVBoxLayout(misc_group)
         
@@ -159,16 +186,38 @@ class SettingsPage(BasePage):
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #8a8a8a;")
         main_layout.addWidget(self.status_label)
+        
+        self.update_model_list("openai")
     
+    def update_model_list(self, provider):
+        """Update available models based on provider."""
+        current_model = self.model_combo.currentText()
+        self.model_combo.clear()
+        
+        if provider == "openai":
+            self.model_combo.addItems(["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"])
+        elif provider == "gemini":
+            self.model_combo.addItems(["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"])
+            
     def load_settings(self):
         """Load current settings into the UI."""
         if not self.config:
             return
         
         self.openai_key_input.setText(self.config.openai_api_key)
+        self.gemini_key_input.setText(self.config.gemini_api_key)
         self.lumaai_key_input.setText(self.config.lumaai_api_key)
         
-        index = self.model_combo.findText(self.config.openai_model)
+        # Set provider first
+        index = self.provider_combo.findText(self.config.chat_model_provider)
+        if index >= 0:
+            self.provider_combo.setCurrentIndex(index)
+        
+        # Update model list and select model
+        self.update_model_list(self.config.chat_model_provider)
+        
+        target_model = self.config.openai_model if self.config.chat_model_provider == "openai" else self.config.gemini_model
+        index = self.model_combo.findText(target_model)
         if index >= 0:
             self.model_combo.setCurrentIndex(index)
         
@@ -178,10 +227,15 @@ class SettingsPage(BasePage):
         self.system_prompt_input.setPlainText(self.config.system_prompt)
         self.ai1_prompt_input.setPlainText(self.config.ai1_system_prompt)
         self.ai2_prompt_input.setPlainText(self.config.ai2_system_prompt)
+        self.ai1_name_input.setText(self.config.ai1_name)
+        self.ai2_name_input.setText(self.config.ai2_name)
         
         index = self.theme_combo.findText(self.config.theme)
         if index >= 0:
             self.theme_combo.setCurrentIndex(index)
+            
+        font = QFont(self.config.font_family)
+        self.font_combo.setCurrentFont(font)
         
         self.auto_update_check.setChecked(self.config.auto_check_updates)
     
@@ -189,17 +243,29 @@ class SettingsPage(BasePage):
         """Save settings to configuration."""
         if not self._config_manager:
             return
+            
+        provider = self.provider_combo.currentText()
+        model = self.model_combo.currentText()
+        
+        openai_model = model if provider == "openai" else self.config.openai_model
+        gemini_model = model if provider == "gemini" else self.config.gemini_model
         
         self._config_manager.update(
             openai_api_key=self.openai_key_input.text().strip(),
+            gemini_api_key=self.gemini_key_input.text().strip(),
             lumaai_api_key=self.lumaai_key_input.text().strip(),
-            openai_model=self.model_combo.currentText(),
+            chat_model_provider=provider,
+            openai_model=openai_model,
+            gemini_model=gemini_model,
             max_tokens=self.max_tokens_spin.value(),
             temperature=self.temperature_spin.value(),
             system_prompt=self.system_prompt_input.toPlainText().strip(),
             ai1_system_prompt=self.ai1_prompt_input.toPlainText().strip(),
             ai2_system_prompt=self.ai2_prompt_input.toPlainText().strip(),
+            ai1_name=self.ai1_name_input.text().strip(),
+            ai2_name=self.ai2_name_input.text().strip(),
             theme=self.theme_combo.currentText(),
+            font_family=self.font_combo.currentFont().family(),
             auto_check_updates=self.auto_update_check.isChecked()
         )
         
@@ -214,11 +280,16 @@ class SettingsPage(BasePage):
         defaults = AppConfig()
         
         self.openai_key_input.clear()
+        self.gemini_key_input.clear()
         self.lumaai_key_input.clear()
         
+        # Reset provider/model
+        index = self.provider_combo.findText("openai")
+        if index >= 0: self.provider_combo.setCurrentIndex(index)
+        
+        self.update_model_list("openai")
         index = self.model_combo.findText(defaults.openai_model)
-        if index >= 0:
-            self.model_combo.setCurrentIndex(index)
+        if index >= 0: self.model_combo.setCurrentIndex(index)
         
         self.max_tokens_spin.setValue(defaults.max_tokens)
         self.temperature_spin.setValue(defaults.temperature)
@@ -226,10 +297,14 @@ class SettingsPage(BasePage):
         self.system_prompt_input.setPlainText(defaults.system_prompt)
         self.ai1_prompt_input.setPlainText(defaults.ai1_system_prompt)
         self.ai2_prompt_input.setPlainText(defaults.ai2_system_prompt)
+        self.ai1_name_input.setText(defaults.ai1_name)
+        self.ai2_name_input.setText(defaults.ai2_name)
         
         index = self.theme_combo.findText(defaults.theme)
         if index >= 0:
             self.theme_combo.setCurrentIndex(index)
+            
+        self.font_combo.setCurrentFont(QFont("Segoe UI"))
         
         self.auto_update_check.setChecked(defaults.auto_check_updates)
         

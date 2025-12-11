@@ -18,13 +18,16 @@ class AIConversationWorker(QThread):
     error_occurred = pyqtSignal(str)
     conversation_ended = pyqtSignal()
     
-    def __init__(self, client, ai1_prompt, ai2_prompt, topic, model, max_tokens, temperature, turns):
+    def __init__(self, client, ai1_prompt, ai2_prompt, ai1_name, ai2_name, topic, model, provider, max_tokens, temperature, turns):
         super().__init__()
         self.client = client
         self.ai1_prompt = ai1_prompt
         self.ai2_prompt = ai2_prompt
+        self.ai1_name = ai1_name
+        self.ai2_name = ai2_name
         self.topic = topic
         self.model = model
+        self.provider = provider
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.turns = turns
@@ -37,6 +40,11 @@ class AIConversationWorker(QThread):
     def run(self):
         """Execute the AI-to-AI conversation."""
         try:
+            # We use non-streaming for AI-to-AI to keep turns clean, or we could stream.
+            # For simplicity, using non-streaming chat wrapper if available, or just consume stream.
+            
+            # Since LLMClient only exposes chat_stream, we consume it.
+            
             ai1_history = [
                 {"role": "system", "content": self.ai1_prompt},
                 {"role": "user", "content": f"Start a conversation about: {self.topic}"}
@@ -49,31 +57,37 @@ class AIConversationWorker(QThread):
                 if not self.is_running:
                     break
                 
-                ai1_response = self.client.chat(
+                # AI 1 Turn
+                ai1_response = ""
+                for chunk in self.client.chat_stream(
                     messages=ai1_history,
                     model=self.model,
+                    provider=self.provider,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature
-                )
+                ):
+                    ai1_response += chunk
                 
-                if not self.is_running:
-                    break
+                if not self.is_running: break
                 
-                self.message_received.emit("AI-1", ai1_response, False)
+                self.message_received.emit(self.ai1_name, ai1_response, False)
                 ai1_history.append({"role": "assistant", "content": ai1_response})
                 ai2_history.append({"role": "user", "content": ai1_response})
                 
-                ai2_response = self.client.chat(
+                # AI 2 Turn
+                ai2_response = ""
+                for chunk in self.client.chat_stream(
                     messages=ai2_history,
                     model=self.model,
+                    provider=self.provider,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature
-                )
+                ):
+                    ai2_response += chunk
+                    
+                if not self.is_running: break
                 
-                if not self.is_running:
-                    break
-                
-                self.message_received.emit("AI-2", ai2_response, True)
+                self.message_received.emit(self.ai2_name, ai2_response, True)
                 ai2_history.append({"role": "assistant", "content": ai2_response})
                 ai1_history.append({"role": "user", "content": ai2_response})
             
@@ -93,6 +107,7 @@ class AIToAIPage(BasePage):
             parent=parent
         )
         self.conversation_worker = None
+        self.messages = []
         self.setup_ui()
     
     def setup_ui(self):
@@ -156,6 +171,15 @@ class AIToAIPage(BasePage):
         self.status_label.setStyleSheet("color: #8a8a8a;")
         layout.addWidget(self.status_label)
     
+    def load_history_data(self, data):
+        """Load history."""
+        self.messages = data.get("messages", [])
+        self.topic_input.setText(data.get("topic", ""))
+        self.chat_widget.clear_messages()
+        
+        for msg in self.messages:
+            self.chat_widget.add_message(msg['content'], is_user=msg.get('is_ai2', False), sender_name=msg.get('sender', 'AI'))
+
     def start_conversation(self):
         """Start the AI-to-AI conversation."""
         topic = self.topic_input.text().strip()
@@ -163,11 +187,12 @@ class AIToAIPage(BasePage):
             self.show_warning("Warning", "Please enter a conversation topic.")
             return
         
-        if not self._openai_client or not self._openai_client.is_configured():
-            self.show_error("Error", "Please configure your OpenAI API key in Settings.")
+        if not self._llm_client:
+            self.show_error("Error", "LLM Client not initialized.")
             return
         
-        self.chat_widget.clear_messages()
+        self.clear_chat(False) # Clear widgets but keep input
+        self.messages = [] # New history
         
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -175,12 +200,18 @@ class AIToAIPage(BasePage):
         self.turns_spinbox.setEnabled(False)
         self.status_label.setText("Conversation in progress...")
         
+        provider = self.config.chat_model_provider
+        model = self.config.openai_model if provider == "openai" else self.config.gemini_model
+
         self.conversation_worker = AIConversationWorker(
-            client=self._openai_client,
+            client=self._llm_client,
             ai1_prompt=self.config.ai1_system_prompt,
             ai2_prompt=self.config.ai2_system_prompt,
+            ai1_name=self.config.ai1_name,
+            ai2_name=self.config.ai2_name,
             topic=topic,
-            model=self.config.openai_model,
+            model=model,
+            provider=provider,
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
             turns=self.turns_spinbox.value()
@@ -189,6 +220,9 @@ class AIToAIPage(BasePage):
         self.conversation_worker.error_occurred.connect(self.on_error)
         self.conversation_worker.conversation_ended.connect(self.on_conversation_ended)
         self.conversation_worker.start()
+        
+        # Save initial state
+        self.save_history()
     
     def stop_conversation(self):
         """Stop the ongoing conversation."""
@@ -199,6 +233,12 @@ class AIToAIPage(BasePage):
     def on_message_received(self, sender: str, message: str, is_ai2: bool):
         """Handle received messages."""
         self.chat_widget.add_message(message, is_user=is_ai2, sender_name=sender)
+        self.messages.append({
+            "sender": sender,
+            "content": message,
+            "is_ai2": is_ai2
+        })
+        self.save_history()
     
     def on_error(self, error_message: str):
         """Handle errors."""
@@ -212,8 +252,31 @@ class AIToAIPage(BasePage):
         self.topic_input.setEnabled(True)
         self.turns_spinbox.setEnabled(True)
         self.status_label.setText("Conversation ended")
+        self.save_history()
     
-    def clear_chat(self):
+    def clear_chat(self, clear_history=True):
         """Clear the chat."""
         self.chat_widget.clear_messages()
         self.status_label.setText("")
+        if clear_history:
+            self.messages = []
+            
+    def save_history(self):
+        if not self._history_manager: return
+        
+        data = {
+            "topic": self.topic_input.text(),
+            "messages": self.messages
+        }
+        
+        # Determine title
+        title = f"Topic: {self.topic_input.text()}"
+        
+        # This is simplified: Always adding new item for new conversation run is better than updating
+        # But if we want to update the current running one...
+        # We need an ID.
+        if not hasattr(self, 'current_history_id') or self.current_history_id is None:
+             item = self._history_manager.add_item("ai_to_ai", title, data)
+             self.current_history_id = item['id']
+        else:
+             self._history_manager.update_item_data("ai_to_ai", self.current_history_id, data)
